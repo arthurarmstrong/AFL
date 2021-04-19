@@ -128,9 +128,9 @@ class Forecast:
     def __init__(self):
         pass
     
-    def get(self,loc='parkville+vic'):
+    def get(self,loc):
         
-        self.API = api.WeatherApi(search=loc, debug=0)
+        self.API = api.WeatherApi(search=loc.replace(' ','+'), debug=0)
         
         self.daily_forecast = self.API.forecasts_daily()
         self.forecast_3hr = self.API.forecasts_3hourly() 
@@ -143,11 +143,7 @@ class Forecast:
             return sorted(self.forecast_3hr,key=lambda x: abs(day-datetime.strptime(x['time'],'%Y-%m-%dT%H:%M:%SZ')))[0]
         
 if __name__ == '__main__':
-#    forecaster = Forecast()
-#    
-#    forecaster.get()
-#    fc = forecaster.date_forecast('2021-04-19 8:00','3hr')
-#    print(fc)
+
     
     update_weather_history()
     i = WeatherIndexer()

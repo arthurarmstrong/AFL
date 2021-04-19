@@ -7,24 +7,25 @@ class Variable:
     def __init__(self,name,parent):
         
         self.name = name
+        self.parent = parent
         
         self.multiplier = 1.
         
     def update(self,expected,real):
-        gam = self.parent.gamma
+        gam = self.parent.slow_gamma
         
-#        upd = ((real/expected-1) * gam)+1
-#        self.multiplier = self.multiplier * upd    
+        upd = ((real/expected-1) * gam)+1
+        self.multiplier = self.multiplier * upd    
         
-        upd = (real - expected) * gam
-        self.multiplier = self.multiplier + upd    
+    def __repr__(self):
+        return str(self.name)
     
 class Team:
     
     def __init__(self,name,parent):
         self.name = name
         self.parent = parent
-        self.gamedata = parent.df[(parent.df.HOME==name) | (parent.df.HOME==name)]
+        #self.gamedata = parent.df[(parent.df[('NONVARIABLE','HOME')]==name) | (parent.df[('NONVARIABLE','AWAY')]==name)]
         self.reset()
         
     def reset(self):
@@ -40,7 +41,7 @@ class Team:
         #defe = (self.home_defend + self.away_defend) / 2
         atta = self.attack
         defe = self.defend
-        compav =  self.parent.moving_ave/2
+        compav =  self.parent.moving_ave
         rank = compav*(atta-defe)
         
         return rank
@@ -50,9 +51,10 @@ class Team:
         
         gam = self.parent.gamma
 
-        myrealscore,myrealexp = self.parent.pt.transform(np.array([myscore,myexp]).reshape(1,2))[0]
-        
-        self.parent.variance += ((myrealscore-myrealexp)/myrealexp)**2
+#        myrealscore = self.parent.pt.transform(np.array([myscore]).reshape(1,1))[0]-self.parent.normalize_offset
+#        myrealexp = self.parent.pt.transform(np.array([myexp]).reshape(1,1))[0]-self.parent.normalize_offset
+
+        self.parent.variance += (myscore-myexp)**2
         self.parent.variance_n += 1
                 
         self.parent.std = (self.parent.variance/self.parent.variance_n)**0.5
@@ -92,63 +94,86 @@ class Team:
 
 class Comp:
     
-    def __init__(self,df,gamma=0.1,comp_gamma=0.02):
+    def __init__(self,df,gamma=0.1,slow_gamma=0.02,normalize_offset=5):
         
         self.pt = PowerTransformer()
         
-        self.total_gamma = comp_gamma
+        self.normalize_offset=normalize_offset
+        
+        self.slow_gamma = slow_gamma
         self.gamma = gamma
         
         self.df = df
-        self.melted = pd.concat([df[['HOME','HOME SCORE']],df[['AWAY','AWAY SCORE']]],sort=True)
+        
+        self.transform_scores()
+        #self.melted = pd.concat([df.NONVARIABLE[['HOME','HOME SCORE']],df.NONVARIABLE[['AWAY','AWAY SCORE']]],sort=True)
         
         self.variance = 0.
         self.variance_n = 0
         
-        teams = set(df[['HOME','AWAY']].values.flatten())
+        teams = set(df[pd.MultiIndex.from_product([['NONVARIABLE'],['HOME','AWAY']])].values.flatten())
             
         self.initialise_comp_averages()
         
         self.teams = {}
         
+        self.create_variables()
+        
         for team in teams:
             self.teams[team] = Team(team,self)
+            
+    def transform_scores(self):
+        scores = self.df[[('NONVARIABLE','HOME SCORE'),('NONVARIABLE','AWAY SCORE')]].values.reshape(-1,1)
+        self.pt.fit_transform(scores)
+        self.df[('NONVARIABLE','HOME SCORE')] = self.pt.transform(self.df[('NONVARIABLE','HOME SCORE')].values.reshape(-1,1))+5
+        self.df[('NONVARIABLE','AWAY SCORE')] = self.pt.transform(self.df[('NONVARIABLE','AWAY SCORE')].values.reshape(-1,1))+5
+        
+        self.df[('NONVARIABLE','TOTAL')] = self.df.loc[:,('NONVARIABLE','HOME SCORE')] + self.df.loc[:,('NONVARIABLE','AWAY SCORE')]
+    
             
     def initialise_comp_averages(self,end=None):
             
         df = self.df
         
-        initial = df['TOTAL'].mean()
+        initial = df[[('NONVARIABLE','TOTAL')]].mean().NONVARIABLE.TOTAL/2
         
         self.moving_ave = initial
-        self.mov_home_ave = df['HOME SCORE'].dropna().mean()
-        self.mov_away_ave = df['AWAY SCORE'].dropna().mean()
+        self.mov_home_ave = df[[('NONVARIABLE','HOME SCORE')]].dropna().mean().NONVARIABLE['HOME SCORE']
+        self.mov_away_ave = df[[('NONVARIABLE','AWAY SCORE')]].dropna().mean().NONVARIABLE['AWAY SCORE']
             
     def update(self):
-        
+
         self.error = 0.
         
-        for r in self.df.dropna(subset=['TOTAL']).iterrows():
-            i,row = r
-            homename = row['HOME']
-            awayname = row['AWAY']
+        for i,row in self.df.dropna(subset=[('NONVARIABLE','TOTAL')]).iterrows():
+            
+            homevars,awayvars = self.get_active_vars(row)
+            
+            homename = row[('NONVARIABLE','HOME')]
+            awayname = row[('NONVARIABLE','AWAY')]
             hometeam = self.teams[homename]    
             awayteam = self.teams[awayname]
-            homescore = row['HOME SCORE']
-            awayscore = row['AWAY SCORE']
+            homescore = row[('NONVARIABLE','HOME SCORE')]
+            awayscore = row[('NONVARIABLE','AWAY SCORE')]
             
-            home_exp, away_exp = self.predict(homename,awayname)
+            home_exp, away_exp = self.predict(homename,awayname,homevars,awayvars)
             
             self.error += (home_exp-homescore)**2 + (away_exp-awayscore)**2
                
             hometeam.update(homescore,home_exp,awayscore,away_exp)
             awayteam.update(awayscore,away_exp,homescore,home_exp)
             
+            #Finally, update variables (e.g. based on distance travelled)
+            for var in homevars:
+                var.update(home_exp,homescore)
+            for var in awayvars:
+                var.update(away_exp,awayscore)
+            
             self.update_comp_averages(homescore,home_exp,awayscore,away_exp)
             
     def update_comp_averages(self,h_s,hexp,a_s,aexp):
         
-        gam = self.total_gamma
+        gam = self.slow_gamma
                 
         upd = (h_s/hexp-1) * gam + 1
         self.mov_home_ave = self.mov_home_ave * upd
@@ -156,38 +181,60 @@ class Comp:
         upd = (a_s/aexp-1) * gam + 1
         self.mov_away_ave = self.mov_away_ave * upd
         
-        self.moving_ave = self.mov_home_ave + self.mov_away_ave
-                
+        realtot,exptot = h_s+a_s,hexp+aexp
+        upd = (realtot/exptot-1) * gam + 1
+        self.moving_ave = self.moving_ave * upd
 
-    def predict(self,h,a):
+    def predict(self,h,a,homevars,awayvars):
 
         hometeam = self.teams[h]
         awayteam = self.teams[a]
 
-        home_exp = self.mov_home_ave * hometeam.attack * awayteam.defend
-        away_exp = self.mov_away_ave * awayteam.attack * hometeam.defend        
+        home_exp = self.moving_ave * hometeam.attack * awayteam.defend
+        for var in homevars:
+            home_exp *= var.multiplier
+
+        away_exp = self.moving_ave * awayteam.attack * hometeam.defend
+        for var in awayvars:
+            away_exp *= var.multiplier
         
         return home_exp,away_exp
     
     def simulate(self,h_s,a_s,n=1000):
         
-        h_s,a_s = self.pt.transform(np.array([h_s,a_s]).reshape(1,2))[0]
+#        h_std = abs(self.std * h_s)
+#        a_std = abs(self.std * a_s)
+        h_std = self.std
+        a_std = self.std
         
-        h_std = abs(self.std * h_s)
-        a_std = abs(self.std * a_s)
-        
-        h_s = np.random.normal(h_s,h_std,n).astype(int)
-        a_s = np.random.normal(a_s,a_std,n).astype(int)
-#        h_s = np.random.normal(h_s,h_std,n)
-#        a_s = np.random.normal(a_s,a_std,n)
+        h_s = np.random.normal(h_s,h_std,n)
+        h_s = self.pt.inverse_transform((h_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
+        a_s = np.random.normal(a_s,a_std,n)
+        a_s = self.pt.inverse_transform((a_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
         
         games = zip(h_s,a_s)
         
         hwins = np.sum([1 for h,a in games if h>a])
+        
         hchance = np.round(hwins/n,4)
         achance = np.round(1-hchance,4)
         
         return hchance, achance
+    
+    def create_variables(self):
+        fil = self.df.filter(like='VARIABLES')
+        var_names = fil.columns.get_level_values(1).unique()
+        
+        self.variables = {x:Variable(x,self) for x in var_names}
+        
+    def get_active_vars(self,loc):
+        variables = []
+        for prefix in ['HOME','AWAY']:
+            active = loc[f'{prefix}_VARIABLES']
+            active = active.loc[active==1]
+            var_names = active.index.unique()
+            variables.append( [self.variables[x] for x in var_names])
+        return variables
     
     def rank_teams(self):
         
@@ -197,7 +244,7 @@ class Comp:
     
     def get_home_factor(self,team,venue):
         
-        filtered = self.df[self.df.HOME == team]
+        filtered = self.df.NONVARIABLE[self.df.NONVARIABLE.HOME == team]
         
     
     def optimise_lr(self,lr=0.1,dg=0.02,tol=1e-6):

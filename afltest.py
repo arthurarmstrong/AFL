@@ -4,44 +4,37 @@ from datetime import datetime
 from fancy_baseliner import Comp
 from prettytable import PrettyTable
 from sklearn.preprocessing import PowerTransformer, StandardScaler
-from bom import Weather, WeatherIndexer
+from bom import Weather, WeatherIndexer, Forecast
+from venues import VenueAPI
 
 def loop():
     
     df = []
     
-    page = get('https://afltables.com/afl/seas/season_idx.html')
+    thisyear = datetime.now().year
     
-    seasonlinks = ['https://afltables.com/afl/seas/'+a.get('href') for a in page.find('table').find_all('a')]
-    
-    for season in seasonlinks[-10:]:
+    for season in range(thisyear-10,thisyear+1):
         
-        page = get(season)
+        page = get(f'https://www.footywire.com/afl/footy/ft_match_list?year={season}')
     
-        for t in page.find_all('table'):
+        for rows in page.find_all('tr'):
             try:
-                rows = t.find_all('tr')
-                ht,at = rows[:2]
+                cols = rows.find_all('td')
+                gamedate = datetime.strptime(rows.find('td').text.strip()+ f' {season}','%a %d %b %H:%M%p %Y')
                 
-                if not 'Match stats' in at.text: continue
+                home,away = [a.text.strip() for a in rows.find_all('a')][:2]
+                venue = cols[2].text.strip()
+                try:
+                    h_s,a_s = [int(x) for x in cols[4].text.split('-')]
+                except:
+                    h_s = a_s = np.nan
                 
-                info = ht.find_all('td')[3].text
-                dat = re.findall('.*?[AP]M',info)[0]
-                dat = datetime.strptime(dat,'%a %d-%b-%Y %H:%M %p')
-                                
-                venue = re.findall('(?<=Venue: ).*',info)[0]
-        
-                home = ht.find('td').text
-                away = at.find('td').text
-                h_s = int(ht.find_all('td')[2].text)
-                a_s = int(at.find_all('td')[2].text)
-                
-                if dat.year == 2020:
+                if gamedate.year == 2020:
                     h_s /= 0.8
                     a_s /= 0.8
                 
                 row = {
-                        'DATE':dat,
+                        'DATE':gamedate,
                         'HOME':home,
                         'HOME SCORE':h_s,
                         'AWAY':away,
@@ -49,13 +42,15 @@ def loop():
                         'VENUE':venue,
                         'TOTAL':h_s+a_s
                         }
-                
+                        
                 df.append(row)
                 
             except:
                 continue
             
-    return pd.DataFrame(df).set_index('DATE')
+    df = pd.DataFrame(df).set_index('DATE')
+    df.columns = pd.MultiIndex.from_product([['NONVARIABLE'],df.columns])
+    return df
     
 def get(url):
     
@@ -137,71 +132,55 @@ def add_rainfall(df):
         df.iloc[i] = data
     
     return df
-
-def add_travel(df):
-    stadium_data  = load_stadium_data()
-    
-#    homelat, homelong = 
     
 
 if __name__ == '__main__':
+##    df = loop()
+#    df = pd.read_pickle('df')
+#    venues = VenueAPI()
+#    df = venues.get_series(df)
+#    
+#    weather_forecaster = Forecast()
+
+    k = Comp(df.copy(),gamma=0.1)
     
-    newdf = add_rainfall(df)
+    k.update()
+    k.rank_teams()
     
+    fixtures = k.df[k.df.index>datetime.now()]
+
+    t = PrettyTable()
+    t.field_names = ['','HOME','AWAY']
     
-#    theroar_to_afl_tables = {'Adelaide Crows': 'Adelaide',
-# 'Brisbane Lions': 'Brisbane Lions',
-# 'Carlton': 'Carlton',
-# 'Collingwood': 'Collingwood',
-# 'Essendon': 'Essendon',
-# 'Fremantle': 'Fremantle',
-# 'GWS Giants': 'Greater Western Sydney',
-# 'Geelong Cats': 'Geelong',
-# 'Gold Coast Suns': 'Gold Coast',
-# 'Hawthorn': 'Hawthorn',
-# 'Melbourne': 'Melbourne',
-# 'North Melbourne': 'North Melbourne',
-# 'Port Adelaide': 'Port Adelaide',
-# 'Richmond': 'Richmond',
-# 'St Kilda': 'St Kilda',
-# 'Sydney Swans': 'Sydney',
-# 'West Coast Eagles': 'West Coast',
-# 'Western Bulldogs': 'Western Bulldogs'}
-#    
-#    df = loop()
-#    fixtures = get_upcoming_fixtures()
-#    
-#    k = Comp(df,gamma=0.1)
-#    
-#    #k.df = df.copy()
-#    k.df.loc[:,['HOME SCORE','AWAY SCORE']] = k.pt.fit_transform(k.df.loc[:,['HOME SCORE','AWAY SCORE']])+5
-#    k.df['TOTAL'] = k.df['HOME SCORE'] + k.df['AWAY SCORE']
-#    
-#    k.update()
-#    k.rank_teams()
-#    
-#    
-#    t = PrettyTable()
-#    t.field_names = ['','HOME','AWAY']
-#    
-#    for match in fixtures[:9]:
-#        home,away = match[:2]
-#        
-#        home = theroar_to_afl_tables[home]
-#        away = theroar_to_afl_tables[away]
-#        
-#        h,a = [np.round(x,3) for x in k.predict(home,away)]
-#        pred = np.array([[h,a]]).reshape(1,2)-5
-#        h,a = k.pt.inverse_transform(pred)[0]
-#        
-#        hc, ac = [np.round(x*100,2) for x in k.simulate(h,a)]
-#        hodds, aodds = [f'${np.round(100/x,2)}' for x in [hc,ac]]
-#        
-#
-#        t.add_rows([['',home,away],
-#        ["Exp. Score",int(h),int(a)],
-#        ["Chance",f'{hc}%',f'{ac}%'],
-#        ["Odds",hodds,aodds]])
-#    
-#    print(t)
+    for ind,match in fixtures.iloc[:9].iterrows():
+        home,away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
+        
+        homevars, awayvars = k.get_active_vars(match)
+        
+        h,a = [np.round(x,3) for x in k.predict(home,away,homevars,awayvars)]
+        hpred = np.array([h]).reshape(1,1)-k.normalize_offset
+        realh = k.pt.inverse_transform(hpred)[0]
+        apred = np.array([a]).reshape(1,1)-k.normalize_offset
+        reala = k.pt.inverse_transform(apred)[0]
+        
+        hc, ac = [np.round(x*100,2) for x in k.simulate(h,a)]
+        hodds, aodds = [f'${np.round(100/x,2)}' for x in [hc,ac]]
+        
+#        venue_address = venues.stadium_data[match.NONVARIABLE.VENUE]['Location'].address.split(',')[2].strip().replace(' ','+')
+#        try:
+#            forecast = weather_forecaster.get(loc=venue_address)
+#            if forecast:
+#                print(forecast.date_forecast(ind))
+#        except:
+#            continue
+        
+
+        t.add_rows([
+        ['',home,away],
+        ["Exp. Score",int(realh),int(reala)],
+        ["Chance",f'{hc}%',f'{ac}%'],
+        ["Odds",hodds,aodds]
+        ])
+    
+    print(t)
     
