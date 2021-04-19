@@ -64,53 +64,6 @@ def load_stadium_data():
         stadium_data = pickle.load(f)
     return stadium_data
 
-
-def get_upcoming_fixtures():
-    
-    r = requests.get('https://www.theroar.com.au/afl-draw/')
-    page = BS(r.content,'html.parser')
-
-    fixtures = []
-    for row in page.find_all('tr'):
-        try:
-            newgamedate = row.find('strong').text.split('-')[0]
-            datetime.strptime(newgamedate,'%A, %B %d')
-            gamedate = newgamedate
-        except:
-            pass
-            
-        if not 'gamedate' in locals(): continue
-        
-        if not row.find_all('td'): continue
-    
-        teams = row.find('td').text
-        
-        if ' vs ' in teams:
-            try:
-                gametime = row.find_all('td')[2].text
-                if gametime == 'TBC': gametime = '3:00pm'
-            except:
-                gametime = '3:00pm'
-            gametime = datetime.strptime(gamedate+' 2021 '+gametime,'%A, %B %d %Y %H:%M%p')
-            venue = row.find_all('td')[1].text
-            hteam,ateam = teams.split(' vs ')
-            if gametime > datetime.now():
-                fixtures.append((hteam,ateam,gametime,venue))
-                
-    return fixtures
-
-def predict_upcoming(k,fixtures):
-        
-    for match in fixtures:
-        
-        hteam,ateam = match[:2]
-        
-        hteam = theroar_to_afl_tables[hteam]
-        hteam = theroar_to_afl_tables[ateam]
-        print(hteam,ateam)
-        
-        k.simulate(hteam,ateam)
-
 def add_rainfall(df):
     stadium_data  = load_stadium_data()
     
@@ -133,37 +86,28 @@ def add_rainfall(df):
     
     return df
 
-def run():
+def run(download=False):
       
-#    df = loop()
     df = pd.read_pickle('df')
+    
+    if download or not df[(df.index<datetime.now()) & df.NONVARIABLE.TOTAL.isnull()].empty:
+        df = loop()
+    
     venues = VenueAPI()
     df = venues.get_series(df)
-#    
-#    weather_forecaster = Forecast()
 
     k = Comp(df.copy(),gamma=0.1)
     
     k.update()
     k.rank_teams()
-    
-    fixtures = k.df[k.df.index>datetime.now()]
 
     t = PrettyTable()
     t.field_names = ['','HOME','AWAY']
     
-    for ind,match in fixtures.iloc[:9].iterrows():
+    for ind,match in k.upcoming_fixtures.iloc[:9].iterrows():
         home,away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
-        
-        homevars, awayvars = k.get_active_vars(match)
-        
-        h,a = [np.round(x,3) for x in k.predict(home,away,homevars,awayvars)]
-        hpred = np.array([h]).reshape(1,1)-k.normalize_offset
-        realh = k.pt.inverse_transform(hpred)[0]
-        apred = np.array([a]).reshape(1,1)-k.normalize_offset
-        reala = k.pt.inverse_transform(apred)[0]
-        
-        hc, ac = [np.round(x*100,2) for x in k.simulate(h,a)]
+                
+        hc, ac, h_exp, a_exp = k.simulate(match)
         hodds, aodds = [f'${np.round(100/x,2)}' for x in [hc,ac]]
         
 #        venue_address = venues.stadium_data[match.NONVARIABLE.VENUE]['Location'].address.split(',')[2].strip().replace(' ','+')
@@ -177,15 +121,17 @@ def run():
 
         t.add_rows([
         ['',home,away],
-        ["Exp. Score",int(realh),int(reala)],
+        ["Exp. Score",int(h_exp),int(a_exp)],
         ["Chance",f'{hc}%',f'{ac}%'],
         ["Odds",hodds,aodds]
         ])
     
     print(t)
     
+    return k
+    
 
 if __name__ == '__main__':
     
-    run()
+    k = run()
     

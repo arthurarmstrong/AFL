@@ -1,4 +1,4 @@
-
+from datetime import datetime
 import os, pandas as pd, numpy as np
 from sklearn.preprocessing import PowerTransformer
 
@@ -104,6 +104,9 @@ class Comp:
         self.gamma = gamma
         
         self.df = df
+        self.untransformed = df.copy()
+        
+        self.upcoming_fixtures = df[self.df.index>datetime.now()]
         
         self.transform_scores()
         #self.melted = pd.concat([df.NONVARIABLE[['HOME','HOME SCORE']],df.NONVARIABLE[['AWAY','AWAY SCORE']]],sort=True)
@@ -200,26 +203,39 @@ class Comp:
         
         return home_exp,away_exp
     
-    def simulate(self,h_s,a_s,n=1000):
+    def monte_carlo(self,match,n=1000):
         
-#        h_std = abs(self.std * h_s)
-#        a_std = abs(self.std * a_s)
+        home,away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
+        homevars, awayvars = self.get_active_vars(match)
+        
+        h_exp,a_exp = [np.round(x,3) for x in self.predict(home,away,homevars,awayvars)]
+        
         h_std = self.std
         a_std = self.std
         
-        h_s = np.random.normal(h_s,h_std,n)
+        h_s = np.random.normal(h_exp,h_std,n)
         h_s = self.pt.inverse_transform((h_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
-        a_s = np.random.normal(a_s,a_std,n)
+        a_s = np.random.normal(a_exp,a_std,n)
         a_s = self.pt.inverse_transform((a_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
+        
+        h_exp = self.pt.inverse_transform(np.array(h_exp-self.normalize_offset).reshape(1,1))[0]
+        a_exp = self.pt.inverse_transform(np.array(a_exp-self.normalize_offset).reshape(1,1))[0]
+        
+        return h_s,a_s,h_exp,a_exp
+        
+    
+    def simulate(self,match,n=1000,scale=100):
+        
+        h_s, a_s, h_exp, a_exp = self.monte_carlo(match,n=n)
         
         games = zip(h_s,a_s)
         
         hwins = np.sum([1 for h,a in games if h>a])
         
-        hchance = np.round(hwins/n,4)
-        achance = np.round(1-hchance,4)
+        hchance = np.round(hwins/n*scale,2)
+        achance = np.round((scale-hchance),2)
         
-        return hchance, achance
+        return hchance, achance, h_exp,a_exp
     
     def create_variables(self):
         fil = self.df.filter(like='VARIABLES')
