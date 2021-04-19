@@ -132,13 +132,13 @@ def add_rainfall(df):
         df.iloc[i] = data
     
     return df
-    
 
-if __name__ == '__main__':
-##    df = loop()
-#    df = pd.read_pickle('df')
-#    venues = VenueAPI()
-#    df = venues.get_series(df)
+def run():
+      
+#    df = loop()
+    df = pd.read_pickle('df')
+    venues = VenueAPI()
+    df = venues.get_series(df)
 #    
 #    weather_forecaster = Forecast()
 
@@ -183,4 +183,9 @@ if __name__ == '__main__':
         ])
     
     print(t)
+    
+
+if __name__ == '__main__':
+    
+    run()
     
