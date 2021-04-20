@@ -1,16 +1,7 @@
 from datetime import datetime
 import pandas as pd
-
-class Futures:
-    
-    def __init__(self,comp):
         
-        self.comp = comp
-        
-    def forecast_regular_season(self):
-        pass
-        
-class Table:
+class SeasonPredicter:
     
     def __init__(self,comp):
         self.comp = comp
@@ -97,11 +88,12 @@ class Table:
         
         self.fullseason = pd.concat(counts,axis=1).fillna(0)
         self.cumulative_ladder = self.fullseason.cumsum()
+        self.cumulative_ladder.to_pickle('CumulativeLadder')
         
     def cumulative_rank(self,team,rank):
         return self.cumulative_ladder[team].loc[rank]
         
-T = Table(k)
-T.forecast()
-T.frequency_count()
-print(T.cumulative_rank('Western Bulldogs',3))
+if __name__ == '__main__':
+    T = SeasonPredicter(k)
+    T.forecast()
+    T.frequency_count()

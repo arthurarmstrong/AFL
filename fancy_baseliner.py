@@ -1,6 +1,7 @@
 from datetime import datetime
 import os, pandas as pd, numpy as np
 from sklearn.preprocessing import PowerTransformer
+from Ladder import SeasonPredicter
 
 class Variable:
 
@@ -124,6 +125,8 @@ class Comp:
         
         for team in teams:
             self.teams[team] = Team(team,self)
+            
+        self.season_predictor = SeasonPredicter(self)
             
     def transform_scores(self):
         scores = self.df[[('NONVARIABLE','HOME SCORE'),('NONVARIABLE','AWAY SCORE')]].values.reshape(-1,1)
