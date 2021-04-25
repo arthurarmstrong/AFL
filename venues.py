@@ -1,6 +1,7 @@
 from geopy.geocoders import Nominatim
 from geopy.distance import distance
 import pickle, pandas as pd
+import numpy as np
 
 class VenueAPI:
     
@@ -31,6 +32,24 @@ class VenueAPI:
             with open('TeamLocations','wb') as f:
                 pickle.dump(self.home_venues,f)
                 
+    def get_closest_stadium(self,team):
+        team = self.home_venues[team]
+        coords = team['Coords'].point
+        
+        min_dist = np.inf
+        
+        for stadium_name,data in self.stadium_data.items():
+            if data['Location'] is None: continue
+        
+            venuecoords = data['Location'].point
+        
+            dist = distance(coords,venuecoords)
+            if dist < min_dist:
+                closest_stadium = stadium_name
+                min_dist = dist
+            
+        return closest_stadium
+                
     def get_series(self,df,as_category=True):
         """
         Take a DataFrame object and return a Series with the distance for each game
@@ -57,3 +76,7 @@ class VenueAPI:
                 df = pd.concat([df,dummies],axis=1)
                 
         return df
+    
+if __name__ == '__main__':
+    venues = VenueAPI()
+    cs = venues.get_closest_stadium('Melbourne')

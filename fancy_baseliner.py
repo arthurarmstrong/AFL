@@ -2,6 +2,7 @@ from datetime import datetime
 import os, pandas as pd, numpy as np
 from sklearn.preprocessing import PowerTransformer
 from Ladder import SeasonPredicter
+from venues import VenueAPI
 
 class Variable:
 
@@ -98,6 +99,8 @@ class Comp:
     def __init__(self,df,gamma=0.1,slow_gamma=0.02,normalize_offset=5):
         
         self.pt = PowerTransformer()
+        
+        self.venues = VenueAPI()
         
         self.normalize_offset=normalize_offset
         

@@ -50,6 +50,7 @@ def loop():
             
     df = pd.DataFrame(df).set_index('DATE')
     df.columns = pd.MultiIndex.from_product([['NONVARIABLE'],df.columns])
+    df.to_pickle('df')
     return df
     
 def get(url):
