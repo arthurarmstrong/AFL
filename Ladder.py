@@ -1,9 +1,9 @@
 from datetime import datetime
 import pandas as pd
 import numpy as np, sys
-from itercools import cycle
+from itertools import cycle
 
-colormap = {'Geelong': () ,
+colormap = {'Geelong': ((0, 51, 102),(211,211,211)) ,
  'Western Bulldogs': ((28, 46, 113),(164, 174, 181), (190, 0, 39)) ,
  'Essendon': ((0, 0, 0),(204, 32, 49)) ,
  'Sydney': ((216, 19, 26),(198, 210, 230)) ,
@@ -13,14 +13,14 @@ colormap = {'Geelong': () ,
  'Fremantle': ((37, 5, 83), (164, 174, 181)),
  'Brisbane': ((0, 84, 164),(255, 225, 155),(253, 191, 87),(165, 0, 68), (124, 0, 62)),
  'Adelaide': ((0, 43, 92),(254, 209, 2), (50, 97, 156), (226, 25, 55)),
- 'West Coast': ((0, 45, 136),(0, 45, 136)),
+ 'West Coast': ((0, 45, 136),(255,215,0)),
  'Gold Coast': ((255, 224, 16),(185, 10, 52),(233, 42, 31),(241, 93, 66), (243, 119, 85),(6, 129, 194)),
  'GWS': ((244, 122, 26),(164, 174, 181)) ,
  'St Kilda': ((0, 0, 0),(237, 27, 47),(164, 174, 181)),
  'Port Adelaide': ((0, 128, 131), (16, 12, 7),(164, 174, 181)),
  'Melbourne': ((7, 9, 45),(205, 26, 46)),
- 'Collingwood': ((0, 0, 0)),
- 'Carlton':((5, 24, 41),(187, 191, 192))
+ 'Collingwood': ((0, 0, 0),(211,211,211)),
+ 'Carlton':((0, 51, 102),(198, 210, 230))
      }
 
 def cm_gen(team):
@@ -47,6 +47,7 @@ class SeasonPredicter:
         self.unplayed = self.this_season.loc[~self.this_season.PLAYED]
         self.played_ladder = self.build_ladder(self.played)
                 
+        
     def build_ladder(self,df):
         
         homewin = (df['HOME SCORE'] > df['AWAY SCORE'])
@@ -211,9 +212,22 @@ class SeasonPredicter:
         return self.cumulative_ladder[team].loc[rank]
     
     def regular_season_histogram(self):
-        return self.finishing_positions.T.hist(figsize=(15,15),bins=range(1,20),density=True)
+        axs = self.finishing_positions.T.hist(figsize=(15,15),bins=range(1,20),density=True)
         
-       
+        for a in axs.flatten():
+            team = a.title.get_text()
+            
+            if not team: continue
+        
+            cmgen = cm_gen(team)
+            for p in a.patches:
+                color = next(cmgen)
+                color = [x/255 for x in color]
+                p.set_color(color)
+            
+            a.minorticks_on()
+        
+        return a.figure
     
 if __name__ == '__main__':
     T = SeasonPredicter(k)

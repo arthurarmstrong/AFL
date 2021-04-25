@@ -105,7 +105,7 @@ def run(download=False):
     t = PrettyTable()
     t.field_names = ['','HOME','AWAY']
     
-    for ind,match in k.upcoming_fixtures.iloc[:9].iterrows():
+    for ind,match in k.upcoming_fixtures.iloc[:10].iterrows():
         home,away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
                 
         hc, ac, h_exp, a_exp = k.simulate(match)
