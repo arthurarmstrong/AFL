@@ -135,4 +135,6 @@ def run(download=False):
 if __name__ == '__main__':
     
     k = run()
+    k.season_predictor.forecast(forecast_to_grand_final=True)
+    histy = k.season_predictor.regular_season_histogram()
     
