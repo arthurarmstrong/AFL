@@ -27,16 +27,35 @@ class Team:
     def __init__(self,name,parent):
         self.name = name
         self.parent = parent
-        #self.gamedata = parent.df[(parent.df[('NONVARIABLE','HOME')]==name) | (parent.df[('NONVARIABLE','AWAY')]==name)]
-        self.reset()
         
-    def reset(self):
         self.home_attack = 1.
         self.home_defend = 1.
         self.away_attack = 1.
         self.away_defend = 1.
         self.attack = 1.
         self.defend = 1.
+        self.home_attack_backup = 1.
+        self.away_attack_backup = 1.
+        self.home_defend_backup = 1.
+        self.away_defend_backup = 1.
+        self.attack_backup = 1.
+        self.defend_backup = 1.
+        
+    def reset(self):
+        self.home_attack = self.home_attack_backup
+        self.home_defend = self.home_defend_backup
+        self.away_attack = self.away_attack_backup
+        self.away_defend = self.away_defend_backup
+        self.attack = self.attack_backup
+        self.defend = self.defend_backup
+        
+    def backup(self):
+        self.home_attack_backup = self.home_attack
+        self.away_attack_backup = self.away_attack
+        self.home_defend_backup = self.home_defend
+        self.away_defend_backup = self.away_defend
+        self.attack_backup = self.attack
+        self.defend_backup = self.defend
         
     def rank(self):
         #atta = (self.home_attack + self.away_attack) / 2
@@ -209,7 +228,7 @@ class Comp:
         
         return home_exp,away_exp
     
-    def monte_carlo(self,match,n=1000):
+    def monte_carlo(self,match,n=1000,invert=True):
         
         home,away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
         homevars, awayvars = self.get_active_vars(match)
@@ -220,19 +239,21 @@ class Comp:
         a_std = self.std
         
         h_s = np.random.normal(h_exp,h_std,n)
-        h_s = self.pt.inverse_transform((h_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
         a_s = np.random.normal(a_exp,a_std,n)
-        a_s = self.pt.inverse_transform((a_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
         
-        h_exp = self.pt.inverse_transform(np.array(h_exp-self.normalize_offset).reshape(1,1))[0]
-        a_exp = self.pt.inverse_transform(np.array(a_exp-self.normalize_offset).reshape(1,1))[0]
+        if invert:
+            h_s = self.pt.inverse_transform((h_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
+            a_s = self.pt.inverse_transform((a_s-self.normalize_offset).reshape(-1,1)).astype(int).flatten()
+
+            h_exp = self.pt.inverse_transform(np.array(h_exp-self.normalize_offset).reshape(1,1))[0]
+            a_exp = self.pt.inverse_transform(np.array(a_exp-self.normalize_offset).reshape(1,1))[0]
         
         return h_s,a_s,h_exp,a_exp
         
     
-    def simulate(self,match,n=1000,scale=100):
+    def simulate(self,match,n=1000,scale=100,invert=True):
         
-        h_s, a_s, h_exp, a_exp = self.monte_carlo(match,n=n)
+        h_s, a_s, h_exp, a_exp = self.monte_carlo(match,n=n,invert=invert)
         
         games = zip(h_s,a_s)
         
@@ -262,12 +283,7 @@ class Comp:
         
         teams = {k:v.rank() for k,v in self.teams.items()}
         
-        return pd.DataFrame(data=teams.values(),columns=['Ranking'],index=teams.keys()).sort_values(by='Ranking',ascending=False)
-    
-    def get_home_factor(self,team,venue):
-        
-        filtered = self.df.NONVARIABLE[self.df.NONVARIABLE.HOME == team]
-        
+        return pd.DataFrame(data=teams.values(),columns=['Ranking'],index=teams.keys()).sort_values(by='Ranking',ascending=False) 
     
     def optimise_lr(self,lr=0.1,dg=0.02,tol=1e-6):
         

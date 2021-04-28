@@ -1,7 +1,8 @@
 from datetime import datetime
 import pandas as pd
-import numpy as np, sys
+import numpy as np, sys, pickle
 from itertools import cycle
+import matplotlib.pyplot as plt
 
 colormap = {'Geelong': ((0, 51, 102),(211,211,211)) ,
  'Western Bulldogs': ((28, 46, 113),(164, 174, 181), (190, 0, 39)) ,
@@ -40,6 +41,7 @@ class SeasonPredicter:
         self.separate_played_unplayed()
         
         self.gfwinners = []
+        self.gfparticipants = []
         
     def separate_played_unplayed(self):
         
@@ -69,7 +71,7 @@ class SeasonPredicter:
         ladder = ladder.sort_values(by=['Points','%'],ascending=False)
         return ladder
     
-    def forecast(self,forecast_to_grand_final=False):
+    def forecast(self,forecast_to_grand_final=False,n=1000):
         for_predictions = []
         against_predictions = []
         win_predictions = []
@@ -81,7 +83,7 @@ class SeasonPredicter:
         
         for i,match in self.unplayed.iterrows():
             home, away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
-            h_s,a_s, _, _ = self.comp.monte_carlo(match)
+            h_s,a_s, _, _ = self.comp.monte_carlo(match,n=n)
             h_s = pd.Series(h_s,name=home)
             a_s = pd.Series(a_s,name=away)
             
@@ -122,6 +124,83 @@ class SeasonPredicter:
         
         self.finishing_positions = pd.concat(finishing_positions,axis=1)
         
+        self.frequency_count()
+        
+    def slow_forecast(self,forecast_to_grand_final=False,n=1000):
+        
+        finishing_positions = []
+        
+        self.gfwinners = []
+
+        #save the current values of team ratings        
+        [t.backup() for t in self.comp.teams.values()]
+        
+        gridshape = (n,T.unplayed.shape[0]*2)
+        win_grid = np.zeros(gridshape)
+        draw_grid = np.zeros(gridshape)
+        for_grid = np.zeros(gridshape)
+        against_grid = np.zeros(gridshape)
+        col_labels = self.unplayed.NONVARIABLE[['HOME','AWAY']].stack().values
+        
+        for sim_no in range(n):
+            
+            match_index = 0
+            
+            for i,match in self.unplayed.iterrows():
+                home, away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
+                pred = self.comp.monte_carlo(match,1)
+                h_s,a_s,h_exp,a_exp = pred
+                
+                h_s_t,a_s_t, h_exp_t, a_exp_t = self.comp.pt.transform(pred).flatten()+self.comp.normalize_offset
+                
+                win_grid[sim_no,match_index] = 4 if h_s > a_s else 0
+                draw_grid[sim_no,match_index] = 2 if h_s == a_s else 0
+                for_grid[sim_no,match_index] = h_s
+                against_grid[sim_no,match_index] = a_s
+                
+                self.comp.teams[home].update(h_s_t,h_exp_t,a_s_t,a_exp_t)
+                                
+                match_index += 1
+                
+                win_grid[sim_no,match_index] = 4 if a_s > h_s else 0
+                draw_grid[sim_no,match_index] = 2 if h_s == a_s else 0
+                for_grid[sim_no,match_index] = a_s
+                against_grid[sim_no,match_index] = h_s
+                
+                self.comp.teams[away].update(a_s_t,a_exp_t,h_s_t,h_exp_t)
+                
+                match_index += 1
+                
+            #put the ratings back where they were    
+            [t.reset() for t in self.comp.teams.values()]
+
+        #Each column is a team playing in a game simulated 
+        self.for_predictions = pd.DataFrame(columns=col_labels,data=for_grid)
+        self.against_predictions = pd.DataFrame(columns=col_labels,data=against_grid)
+        self.win_predictions =  pd.DataFrame(columns=col_labels,data=win_grid)
+        self.draw_predictions =  pd.DataFrame(columns=col_labels,data=draw_grid)
+        
+        #Each row is a simulation of the season
+        for i,season_sim in self.win_predictions.iterrows():
+            wins = season_sim.groupby(season_sim.index).sum().rename('Points')
+            pts_for = self.for_predictions.iloc[i].groupby(season_sim.index).sum().rename('For')
+            pts_agst = self.against_predictions.iloc[i].groupby(season_sim.index).sum().rename('Against')
+            ladder = pd.concat([wins,pts_for,pts_agst],axis=1)
+            ladder = ladder+self.played_ladder
+            ladder['%'] = ladder.For / ladder.Against
+            ladder.sort_values(by=['Points','%'],inplace=True,ascending=False)
+            ladder['RANK'] = [x+1 for x in range(len(ladder.index.values))]
+            self.ladder = ladder
+            
+            if forecast_to_grand_final:
+                self.forecast_afl_finals(ladder)
+            
+            finishing_positions.append(ladder.RANK)
+        
+        self.finishing_positions = pd.concat(finishing_positions,axis=1)
+        
+        self.frequency_count()
+        
     def forecast_afl_finals(self,simladder):
         
         """
@@ -143,12 +222,15 @@ class SeasonPredicter:
         [(gfwinner,_)] = self.forecast_final_stage(simladder,pairs=pairs)
         
         gfwinner = simladder.loc[simladder.RANK==gfwinner].index[0]
+        pf1winner = simladder.loc[simladder.RANK==pf1winner].index[0]
+        pf2winner = simladder.loc[simladder.RANK==pf2winner].index[0]
         
         self.gfwinners.append(gfwinner)
+        self.gfparticipants.extend([pf1winner,pf2winner])
         
-        if len(self.gfwinners) % 100 == 0:
-            sys.stdout.write(f'Season simulated {len(self.gfwinners)} times.')
-            sys.stdout.flush()
+#        if len(self.gfwinners) % 100 == 0:
+        sys.stdout.write('\r' + f'Season simulated {len(self.gfwinners)} times.')
+        sys.stdout.flush()
         
     
     def forecast_final_stage(self,simladder,pairs=[(1,4),(2,3),(5,8),(6,7)]):
@@ -205,9 +287,7 @@ class SeasonPredicter:
         self.fullseason = pd.concat(counts,axis=1).fillna(0)
         self.cumulative_ladder = self.fullseason.cumsum()
         self.cumulative_ladder.to_pickle('CumulativeLadder')
-        
-        print(self.cumulative_ladder)
-        
+                
     def cumulative_rank(self,team,rank):
         return self.cumulative_ladder[team].loc[rank]
     
@@ -219,6 +299,8 @@ class SeasonPredicter:
             
             if not team: continue
         
+            a.add_patch(plt.Rectangle((0,0),9,1,alpha=0.1,color='red'))
+        
             cmgen = cm_gen(team)
             for p in a.patches:
                 color = next(cmgen)
@@ -229,7 +311,91 @@ class SeasonPredicter:
         
         return a.figure
     
+    def to_make_finals(self):
+        return 1/self.cumulative_ladder.loc[8].rename('To Make Finals').sort_values(ascending=False)
+    
+    def to_miss_finals(self):
+        return 1/(1-self.cumulative_ladder.loc[8]).rename('To Miss Finals').sort_values(ascending=False)
+    
+    def to_win_gf(self):
+        
+        wingf = pd.value_counts(self.gfwinners)
+        wingf /= wingf.sum()
+        wingf.rename('Chance of Winning The Grand Final',inplace=True)
+                
+        return wingf
+        
+    def to_make_gf(self):
+        makegf = pd.value_counts(self.gfparticipants)
+        makegf /= makegf.sum() / 2
+        makegf.rename('Chance of Making The Grand Final',inplace=True)
+
+        return makegf
+    
+def plot_odds(df):
+    fig, ax = plt.subplots()
+    ax.set_xlim(right=19)
+    ax.set_ylim(top=df.max()+0.1)
+    
+    for i,(team,y) in enumerate(df.iteritems()):
+        
+        cm = colormap[team]
+        numpatches = len(cm)
+        pheight = y
+        pmap = np.linspace(0,pheight,numpatches+1)
+        patchbins = [(pmap[i],pmap[i+1]) for i,x in enumerate(pmap[:-1])]
+        
+        for ipatch, vertpatch in enumerate(patchbins):
+            p = plt.Rectangle((i+0.25,vertpatch[0]),0.5,pheight/numpatches)
+            p.set_color([x/255 for x in cm[ipatch]])
+            ax.add_patch(p)
+    
+    ax.set_xticks(range(len(df.index)))
+    ax.set_xticklabels(df.index,rotation=270)
+    ax.set_title(df.name)
+    
+    return ax
+        
+        
+class PrettyPredictions:
+    
+    def __init__(self,predictor):
+        self.make_finals = predictor.to_make_finals()
+        self.miss_finals = predictor.to_miss_finals()
+        self.cumulative_ladder = predictor.cumulative_ladder
+        season_hist = predictor.regular_season_histogram()
+        season_hist.savefig('season.png')
+        
+        upcoming = predictor.unplayed.NONVARIABLE.reset_index()
+        
+        wins = (predictor.win_predictions+predictor.draw_predictions)/4
+        
+        match_ind = np.array([[i,i] for i in range(int((wins.shape[1]+1)/2))]).flatten()
+        wins.columns = pd.MultiIndex.from_arrays([match_ind,wins.columns])
+        
+        for i,game in upcoming.iterrows():
+            pred = wins.loc[:,i]
+            
+            home = pred[pred.columns[0]]
+            away = pred[pred.columns[1]]
+            
+            hwin = home.sum()/home.count()
+            awin = away.sum()/away.count()
+            
+            upcoming.at[i,'HOME CHANCE'] = hwin
+            upcoming.at[i,'AWAY CHANCE'] = awin
+        
+        upcoming.drop(labels=['HOME SCORE','AWAY SCORE','TOTAL'],inplace=True,axis=1)
+        
+        self.upcoming = upcoming.set_index('DATE')
+        
+    def save(self):
+        with open('predictions','wb') as f:
+            pickle.dump(self,f)
+    
 if __name__ == '__main__':
     T = SeasonPredicter(k)
-    T.forecast(forecast_to_grand_final=True)
-    T.frequency_count()
+##    T.forecast(forecast_to_grand_final=True,n=10000)
+    T.slow_forecast(forecast_to_grand_final=True,n=2000)
+    
+    PrettyPredictions(T).save()

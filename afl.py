@@ -105,7 +105,7 @@ def run(download=False):
     t = PrettyTable()
     t.field_names = ['','HOME','AWAY']
     
-    for ind,match in k.upcoming_fixtures.iloc[:10].iterrows():
+    for ind,match in k.upcoming_fixtures.iloc[:9].iterrows():
         home,away = match.NONVARIABLE.HOME, match.NONVARIABLE.AWAY
                 
         hc, ac, h_exp, a_exp = k.simulate(match)
@@ -135,6 +135,6 @@ def run(download=False):
 if __name__ == '__main__':
     
     k = run()
-    k.season_predictor.forecast(forecast_to_grand_final=True)
-    histy = k.season_predictor.regular_season_histogram()
+    k.season_predictor.forecast(forecast_to_grand_final=False)
+#    histy = k.season_predictor.regular_season_histogram()
     
