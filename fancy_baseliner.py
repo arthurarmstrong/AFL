@@ -115,11 +115,14 @@ class Team:
 
 class Comp:
     
-    def __init__(self,df,gamma=0.1,slow_gamma=0.02,normalize_offset=5):
+    def __init__(self,df,gamma=0.1,slow_gamma=0.02,normalize_offset=5,infer_hfa=False):
         
         self.pt = PowerTransformer()
         
-        self.venues = VenueAPI()
+        try:
+            self.venues = VenueAPI()
+        except:
+            pass
         
         self.normalize_offset=normalize_offset
         
@@ -127,7 +130,12 @@ class Comp:
         self.gamma = gamma
         
         self.df = df
-        self.untransformed = df.copy()
+        
+        self.enforce_multilevel_index()        
+        if infer_hfa:
+            self.initialise_hfa_as_dummy_variable()
+            
+        self.untransformed = self.df.copy()
         
         self.upcoming_fixtures = df[self.df.index>datetime.now()]
         
@@ -149,6 +157,19 @@ class Comp:
             self.teams[team] = Team(team,self)
             
         self.season_predictor = SeasonPredicter(self)
+        
+        
+    def enforce_multilevel_index(self):
+        
+        if not type(self.df.columns) == pd.core.indexes.multi.MultiIndex:
+            self.df.columns = pd.MultiIndex.from_product([['NONVARIABLE'],self.df.columns])
+
+        
+    def initialise_hfa_as_dummy_variable(self):
+        
+        self.df[('HOME_VARIABLES','HOME GAME')] = 1
+        self.df[('AWAY_VARIABLES','AWAY GAME')] = 1
+        
             
     def transform_scores(self):
         scores = self.df[[('NONVARIABLE','HOME SCORE'),('NONVARIABLE','AWAY SCORE')]].values.reshape(-1,1)

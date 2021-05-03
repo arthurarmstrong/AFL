@@ -93,7 +93,7 @@ def run(download=False):
     
     if download or not df[(df.index<datetime.now()) & df.NONVARIABLE.TOTAL.isnull()].empty:
         df = loop()
-    
+#    
     venues = VenueAPI()
     df = venues.get_series(df)
 
@@ -134,7 +134,8 @@ def run(download=False):
 
 if __name__ == '__main__':
     
-    k = run()
-    k.season_predictor.forecast(forecast_to_grand_final=False)
+#    k = run()
+#    k.season_predictor.forecast(forecast_to_grand_final=False)
 #    histy = k.season_predictor.regular_season_histogram()
     
+    k = run()

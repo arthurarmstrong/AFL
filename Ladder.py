@@ -36,8 +36,8 @@ class SeasonPredicter:
         df = comp.untransformed
         
         self.this_season = df[df.index.year == datetime.now().year]
-        self.this_season['PLAYED'] = self.this_season.index < datetime.now()
-        
+        self.this_season['PLAYED'] = (self.this_season.index < datetime.now()) & (~self.this_season.NONVARIABLE['HOME SCORE'].isnull()) & (~self.this_season.NONVARIABLE['AWAY SCORE'].isnull())
+                
         self.separate_played_unplayed()
         
         self.gfwinners = []
@@ -58,11 +58,12 @@ class SeasonPredicter:
         df['HOME_POINTS'] = homewin*4 + draw*2
         df['AWAY_POINTS'] = awaywin*4 + draw*2
         
-        pts = df.groupby('HOME')['HOME_POINTS'].sum() + df.groupby('AWAY')['AWAY_POINTS'].sum() 
+        pts = df.groupby('AWAY')['AWAY_POINTS'].sum().add(df.groupby('HOME')['HOME_POINTS'].sum(),fill_value=0)
+        
         pts = pts.rename('Points').astype(int)
-        f = df.groupby('HOME')['HOME SCORE'].sum() + df.groupby('AWAY')['AWAY SCORE'].sum()
+        f = df.groupby('AWAY')['AWAY SCORE'].sum().add(df.groupby('HOME')['HOME SCORE'].sum(),fill_value=0)
         f = f.rename('For').astype(int)
-        a = df.groupby('HOME')['AWAY SCORE'].sum() + df.groupby('AWAY')['HOME SCORE'].sum()
+        a = df.groupby('AWAY')['HOME SCORE'].sum().add(df.groupby('HOME')['AWAY SCORE'].sum(),fill_value=0)
         a = a.rename('Against').astype(int)
         perc = f/a
         perc = perc.rename('%')
