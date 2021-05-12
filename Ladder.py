@@ -13,7 +13,7 @@ colormap = {'Geelong': ((0, 51, 102),(211,211,211)) ,
  'Hawthorn': ((77, 32, 4), (250, 191, 22)),
  'Fremantle': ((37, 5, 83), (164, 174, 181)),
  'Brisbane': ((0, 84, 164),(255, 225, 155),(253, 191, 87),(165, 0, 68), (124, 0, 62)),
- 'Adelaide': ((0, 43, 92),(254, 209, 2), (50, 97, 156), (226, 25, 55)),
+ 'Adelaide': ((254, 209, 2),(0, 43, 92), (50, 97, 156), (226, 25, 55)),
  'West Coast': ((0, 45, 136),(255,215,0)),
  'Gold Coast': ((255, 224, 16),(185, 10, 52),(233, 42, 31),(241, 93, 66), (243, 119, 85),(6, 129, 194)),
  'GWS': ((244, 122, 26),(164, 174, 181)) ,
@@ -333,6 +333,96 @@ class SeasonPredicter:
 
         return makegf
     
+    def points_to_guarantee_rank(self,rank=4,include_played=False):
+        hist = []
+        
+        lad = self.build_ladder(self.played).Points
+        
+        for team,top4 in (self.finishing_positions <= rank).iterrows():
+            top4 = top4.reset_index(drop=True)
+            num_wins = ((self.win_predictions+self.draw_predictions).loc[top4,team]).T.sum().rename(team)
+            
+            if include_played:
+                num_wins += lad.loc[team]
+            
+            if not num_wins.empty:
+                hist.append(num_wins)
+        
+        hist = pd.concat(hist,axis=1)
+        
+        return hist
+    
+    def plot_rank_guarantee(self,rank=4):
+        df = self.points_to_guarantee_rank(rank)
+        axs = df.hist(figsize=(15,15),cumulative=True)
+
+        for a in axs.flatten():
+            team = a.title.get_text()
+            
+            if not team: continue
+         
+            cmgen = cm_gen(team)
+            for p in a.patches:
+                color = next(cmgen)
+                color = [x/255 for x in color]
+                p.set_color(color)
+                
+    def get_important_games(self,team,rank=4):
+        
+        def color_pic(pic):
+            pic.set_title('Order of Games By Importance')
+            pic.set_ylabel('% Win When Making Top 4')
+            dh = 0.1
+            for i,team in enumerate(pic.get_xticklabels()):
+                team = team.get_text()
+                cmgen = cm_gen(team)
+            
+                patch = pic.patches[i]
+            
+                stopheight = patch.get_height()
+                x = patch.get_x()
+                
+                color = next(cmgen)
+                color = [x/255 for x in color]
+                patch.set_color(color)
+            
+                width = patch.get_width()
+                patch.set_height(dh)
+                height = dh
+                
+                while True:
+                    p = plt.Rectangle((x,height),height=dh,width=width)
+                    color = next(cmgen)
+                    color = [x/255 for x in color]
+                    p.set_color(color)        
+            
+                    pic.add_patch(p)
+                    
+                    height += dh
+                    
+                    if p.get_y() + p.get_height() >= stopheight:
+                        p.set_height(stopheight-p.get_y())
+                        break
+            return pic
+        
+        top4 = (self.finishing_positions.loc[team] <= rank).reset_index(drop=True)
+        
+        win_preds = (self.win_predictions+self.draw_predictions)/4
+        new_level = sorted((list(range(int(self.win_predictions.shape[1]/2)))*2))
+        win_preds.columns = pd.MultiIndex.from_tuples(zip(new_level,T.win_predictions.columns))
+        
+        locater = win_preds.columns.get_loc_level(team,level=1)
+        
+        involving_team = win_preds.loc[top4,locater[1]].drop(team,level=1,axis=1)
+        involving_team.columns = involving_team.columns.droplevel(0)
+        involving_team = 1 - involving_team
+
+        important_games = (involving_team.sum()/involving_team.count()).sort_values(ascending=False)
+        pic = important_games.plot(kind='bar')
+        
+        return color_pic(pic)
+        
+    
 def plot_odds(df):
     fig, ax = plt.subplots()
     ax.set_xlim(right=19)
@@ -378,6 +468,7 @@ class PrettyPredictions:
             pred = wins.loc[:,i]
             
             home = pred[pred.columns[0]]
+            
             away = pred[pred.columns[1]]
             
             hwin = home.sum()/home.count()
@@ -388,6 +479,8 @@ class PrettyPredictions:
         
         upcoming.drop(labels=['HOME SCORE','AWAY SCORE','TOTAL'],inplace=True,axis=1)
         
+        self.wins = wins
+        
         self.upcoming = upcoming.set_index('DATE')
         
     def save(self):
@@ -397,6 +490,6 @@ class PrettyPredictions:
 if __name__ == '__main__':
     T = SeasonPredicter(k)
 ##    T.forecast(forecast_to_grand_final=True,n=10000)
-    T.slow_forecast(forecast_to_grand_final=True,n=2000)
+    T.slow_forecast(forecast_to_grand_final=True,n=5000)
     
     PrettyPredictions(T).save()
