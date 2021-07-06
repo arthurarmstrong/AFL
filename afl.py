@@ -97,6 +97,9 @@ def run(download=False):
     venues = VenueAPI()
     df = venues.get_series(df)
 
+    #something wrong with the times... so i'm shifting them. this will break something later on and is a hacky fix
+    df.index = df.index.shift(3,freq='H')
+
     k = Comp(df.copy(),gamma=0.1)
     
     k.update()
@@ -138,4 +141,4 @@ if __name__ == '__main__':
 #    k.season_predictor.forecast(forecast_to_grand_final=False)
 #    histy = k.season_predictor.regular_season_histogram()
     
-    k = run()
+    k = run(download=True)
